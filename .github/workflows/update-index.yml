@@ -48,14 +48,34 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add index.html
-          if git diff --cached --quiet; then
-            echo 'Index unchanged; no commit needed.'
-          else
+
+          # Keep the newly generated index safe while syncing with main.
+          cp index.html "$RUNNER_TEMP/generated-index.html"
+
+          # Retry if another update reaches main between fetch and push.
+          for attempt in 1 2 3; do
+            echo "Publishing generated index (attempt $attempt of 3)"
+            git fetch origin main
+            git reset --hard FETCH_HEAD
+            cp "$RUNNER_TEMP/generated-index.html" index.html
+            git add index.html
+
+            if git diff --cached --quiet; then
+              echo 'Index unchanged; no commit needed.'
+              exit 0
+            fi
+
             git commit -m 'Refresh repository index'
-            git pull --rebase origin main
-            git push origin HEAD:main
-          fi
+            if git push origin HEAD:main; then
+              echo 'Generated index pushed successfully.'
+              exit 0
+            fi
+
+            echo 'Push raced with another update; fetching latest main and retrying.'
+          done
+
+          echo 'Unable to publish generated index after 3 attempts.'
+          exit 1
 
 
       - name: Configure GitHub Pages
